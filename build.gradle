@@ -1,0 +1,163 @@
+buildscript {
+    ext {
+        corda_release_group = 'net.corda'
+        corda_release_version = '4.3'
+        tokens_release_group = 'com.r3.corda.lib.tokens'
+        tokens_release_version = '1.1-RC01'
+        corda_gradle_plugins_version = '5.0.4'
+        quasar_version = '0.7.10'
+        spring_boot_version = '2.0.2.RELEASE'
+        spring_boot_gradle_plugin_version = '2.0.2.RELEASE'
+        slf4j_version = '1.7.25'
+        log4j_version = '2.11.2'
+        corda_platform_version = '5'
+        // Account library.
+        accounts_release_group = 'com.r3.corda.lib.accounts'
+        accounts_release_version = '1.0'
+        // Confidential Id.
+        confidential_id_release_group = "com.r3.corda.lib.ci"
+        confidential_id_release_version = "1.0"
+        // OkHTTP: A simple HTTP library.
+        okhttp_version = '3.5.0'
+        javax_validation_version = '1.1.0.Final'
+        fasterxml_version = '2.9.0'
+    }
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        jcenter()
+        maven { url "http://ci-artifactory.corda.r3cev.com/artifactory/corda-releases" }
+        maven { url "https://repo.gradle.org/gradle/libs-releases-local/" }
+    }
+
+    dependencies {
+        classpath "net.corda.plugins:cordapp:$corda_gradle_plugins_version"
+        classpath "net.corda.plugins:cordformation:$corda_gradle_plugins_version"
+        classpath "net.corda.plugins:quasar-utils:$corda_gradle_plugins_version"
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:$spring_boot_gradle_plugin_version"
+    }
+}
+
+allprojects {
+    apply plugin: 'java'
+
+    repositories {
+        mavenLocal()
+        jcenter()
+        mavenCentral()
+        maven { url 'https://ci-artifactory.corda.r3cev.com/artifactory/corda' }
+        maven { url 'https://jitpack.io' }
+        maven { url "https://repo.gradle.org/gradle/libs-releases-local/" }
+        // Tokens SDK.
+        maven { url "http://ci-artifactory.corda.r3cev.com/artifactory/corda-dev" }
+        maven { url "http://ci-artifactory.corda.r3cev.com/artifactory/corda-releases" }
+        maven { url "http://ci-artifactory.corda.r3cev.com/artifactory/corda-lib-dev" }
+        // Accounts library.
+        maven { url 'http://ci-artifactory.corda.r3cev.com/artifactory/corda-lib-dev' }
+        maven { url 'http://ci-artifactory.corda.r3cev.com/artifactory/corda-lib' }
+    }
+
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-parameters" // Required by Corda's serialisation framework.
+    }
+
+    jar {
+        // This makes the JAR's SHA-256 hash repeatable.
+        preserveFileTimestamps = false
+        reproducibleFileOrder = true
+    }
+}
+
+
+apply plugin: 'net.corda.plugins.cordapp'
+apply plugin: 'net.corda.plugins.cordformation'
+apply plugin: 'net.corda.plugins.quasar-utils'
+
+cordapp {
+    info {
+        name "CorDapp Template"
+        vendor "Corda Open Source"
+        targetPlatformVersion corda_platform_version.toInteger()
+        minimumPlatformVersion corda_platform_version.toInteger()
+    }
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir rootProject.file("config/dev")
+        }
+    }
+}
+
+dependencies {
+    testCompile "org.junit.jupiter:junit-jupiter:5.4.2"
+
+    // Corda dependencies.
+    cordaCompile "$corda_release_group:corda-core:$corda_release_version"
+    cordaCompile "$corda_release_group:corda-node-api:$corda_release_version"
+    cordaRuntime "$corda_release_group:corda:$corda_release_version"
+
+    // CorDapp dependencies.
+    cordapp project(":workflows")
+    cordapp project(":contracts")
+
+    // For logging
+    cordaCompile "org.apache.logging.log4j:log4j-slf4j-impl:${log4j_version}"
+    cordaCompile "org.apache.logging.log4j:log4j-web:${log4j_version}"
+    cordaCompile "org.slf4j:jul-to-slf4j:$slf4j_version"
+
+    // Token SDK dependencies.
+    cordapp "$tokens_release_group:tokens-contracts:$tokens_release_version"
+    cordapp "$tokens_release_group:tokens-workflows:$tokens_release_version"
+    cordapp "$tokens_release_group:tokens-money:$tokens_release_version"
+}
+
+task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
+    nodeDefaults {
+        projectCordapp {
+            deploy = false
+        }
+        cordapp("$tokens_release_group:tokens-contracts:$tokens_release_version")
+        cordapp("$tokens_release_group:tokens-workflows:$tokens_release_version")
+        cordapp("$tokens_release_group:tokens-money:$tokens_release_version")
+        cordapp project(':contracts')
+        cordapp project(':workflows')
+    }
+    node {
+        name "O=Notary,L=London,C=GB"
+        notary = [validating : false]
+        p2pPort 10002
+        rpcSettings {
+            address("localhost:10003")
+            adminAddress("localhost:10043")
+        }
+        cordapps = []
+    }
+    node {
+        name "O=PartyA,L=London,C=GB"
+        p2pPort 10005
+        rpcSettings {
+            address("localhost:10006")
+            adminAddress("localhost:10046")
+        }
+        rpcUsers = [[ user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+    node {
+        name "O=PartyB,L=New York,C=US"
+        p2pPort 10008
+        rpcSettings {
+            address("localhost:10009")
+            adminAddress("localhost:10049")
+        }
+        rpcUsers = [[ user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+}
+
+task installQuasar(type: Copy) {
+    destinationDir rootProject.file("lib")
+    from(configurations.quasar) {
+        rename 'quasar-core(.*).jar', 'quasar.jar'
+    }
+}

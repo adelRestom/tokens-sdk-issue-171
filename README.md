@@ -1,0 +1,1 @@
+This repository shows an example for this issue: https://github.com/corda/token-sdk/issues/171
